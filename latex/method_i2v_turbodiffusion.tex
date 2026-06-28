@@ -1,0 +1,304 @@
+% ============================================================
+%  Method: Face Restoration via Image-to-Video Generation
+%  using TurboDiffusion (Wan2.2-A14B)
+%
+%  Drop this into main.tex as a \section or \subsection
+% ============================================================
+
+\subsection{Face restoration via image-to-video generation}
+\label{subsec:i2v_method}
+
+Rather than restoring a degraded face image into a single enhanced
+frame, we propose to exploit an \emph{image-to-video} (I2V) diffusion
+model as the restoration backbone.  The core idea is that a video
+generation model conditioned on the degraded input will produce a
+temporal sequence of $T$ frames; among these frames, at least one is
+likely to exhibit a high-fidelity, near-frontal face that better
+preserves the subject's identity than any single-image method can
+achieve.
+
+%------------------------------------------------------------
+\subsubsection{TurboDiffusion framework}
+\label{subsubsec:turbodiffusion}
+
+We employ TurboDiffusion~\cite{TurboDiffusion}, a video generation
+acceleration framework built upon the Wan2.2-A14B
+architecture---a 14-billion-parameter image-to-video diffusion
+model.  TurboDiffusion achieves $100$--$200 \times$ end-to-end
+speedup compared to the original Wan~2.2 model by combining
+three synergistic acceleration techniques:
+
+\begin{enumerate}
+    \item \textbf{rCM (Rectified Consistency Model)
+          distillation}~\cite{rCM}.\;
+          The standard 50--100 denoising steps of the base model are
+          compressed to only \textbf{4~steps} via score-regularized
+          continuous-time consistency training.  Two complementary
+          checkpoints are trained for different noise regimes:
+          \begin{itemize}
+              \item \emph{Low-noise model} ($\bm{\theta}_{\text{low}}$):
+                    handles the low-noise range
+                    (timestep boundary $\leq 0.9$).
+              \item \emph{High-noise model} ($\bm{\theta}_{\text{high}}$):
+                    handles the high-noise range
+                    (timestep boundary $> 0.9$).
+          \end{itemize}
+          During inference, the scheduler switches from
+          $\bm{\theta}_{\text{high}}$ to $\bm{\theta}_{\text{low}}$
+          when the current timestep crosses the boundary.
+
+    \item \textbf{SageSLA (Sparse-Linear Attention)}~\cite{SLA}.\;
+          Full quadratic self-attention $\mathcal{O}(n^{2})$ in the
+          DiT backbone is replaced by a sparse-linear variant that
+          selects only the top-$k$ attention entries ($k=0.1$),
+          reducing attention computation by approximately $10\times$
+          while preserving generation quality.
+
+    \item \textbf{INT8 weight quantization}.\;
+          All linear projection layers in the DiT are quantized to
+          INT8, halving memory bandwidth and enabling inference on
+          consumer GPUs (e.g., NVIDIA RTX~5090 with ${<}24$\,GB VRAM).
+\end{enumerate}
+
+The resulting pipeline generates a 720p, 81-frame video in
+approximately \textbf{38 seconds} on a single RTX~5090, compared
+to $\sim$4549\,s for the unaccelerated Wan~2.2 model---a
+$120\times$ speedup.
+
+%------------------------------------------------------------
+\subsubsection{Conditional video generation}
+\label{subsubsec:conditional_gen}
+
+Given a degraded input image $B_i(\sigma)$ and a text prompt
+$\mathcal{P}$, the I2V model generates a video clip
+$\mathbf{V} = \{I_t\}_{t=1}^{T}$ with $T = 81$ frames.
+The generation follows an ODE (Ordinary Differential Equation)
+sampling trajectory, which yields deterministic and sharper outputs
+compared to stochastic SDE sampling.
+
+We design three severity-adaptive text prompts, each tailored to
+guide the generation process according to the degree of input
+degradation:
+
+\paragraph{Mild blur ($\sigma \in \{3, 5\}$).}
+\begin{quote}\small\itshape
+``Ultra-high definition macro photography of a human face, 8k
+resolution, razor-sharp focus. Enhance micro-details, crystal clear
+optical sharpness. Authentic natural skin texture. The subject
+smoothly turns their head towards the lens, ending the video with
+a perfectly straight, direct frontal view portrait. Exact identity
+preservation maintained throughout the temporal motion, maintaining
+eye contact in the final frames.''
+\end{quote}
+
+\paragraph{Moderate blur ($\sigma \in \{8, 10\}$).}
+\begin{quote}\small\itshape
+``Cinematic ultra-high definition portrait of a human, 8k resolution,
+raw photography. Exact structural reconstruction, authentic skin
+texture with natural real-world anomalies. Professional studio
+lighting. Dynamic temporal consistency: the camera naturally
+transitions to lock onto a strict frontal view. In the final frames,
+the face is perfectly aligned symmetrically towards the viewer,
+ensuring highly detailed, unmodified facial structure from the front.''
+\end{quote}
+
+\paragraph{Severe blur ($\sigma \in \{12, 15\}$).}
+\begin{quote}\small\itshape
+``Hyper-realistic forensic-level restoration of a human face, 8k
+resolution, extremely precise facial geometry. Strict structural
+coherence, exact mapping of original facial proportions. Photorealistic
+raw texture. The video dictates a deliberate motion ending in a static,
+straight-on frontal view. The final frames strictly lock into a direct
+frontal portrait, resolving all facial geometries symmetrically without
+altering the original identity, neutral unedited appearance.''
+\end{quote}
+
+The prompt design follows two guiding principles: (i)~enforce
+\emph{identity and structural preservation} by explicitly requesting
+that the original facial geometry and biological attributes remain
+unchanged, and (ii)~prescribe a \emph{motion trajectory} that
+culminates in a frontal view, maximizing the likelihood of at least
+one frame being suitable for face recognition.
+
+The key hyperparameters used for all experiments are summarized in
+Table~\ref{tab:i2v_params}.
+
+\begin{table}[h]
+\centering
+\caption{TurboDiffusion I2V generation hyperparameters.}
+\label{tab:i2v_params}
+\begin{tabular}{l l}
+\toprule
+\textbf{Parameter} & \textbf{Value} \\
+\midrule
+Base model               & Wan2.2-A14B (14B parameters) \\
+Resolution               & 720p (adaptive) \\
+Number of frames ($T$)   & 81 \\
+Inference steps           & 4 \\
+Attention type            & SageSLA \\
+SLA top-$k$ ratio         & 0.1 \\
+Sampling method           & ODE \\
+Weight quantization       & INT8 (quant\_linear) \\
+Random seed               & 0 (fixed) \\
+Noise-regime boundary     & 0.9 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%------------------------------------------------------------
+\subsubsection{Optimal frontal frame selection}
+\label{subsubsec:frame_selection}
+
+A critical component of the I2V pipeline is the extraction of
+a single \emph{best frame} $I^{*}$ from the generated video
+$\mathbf{V}$, representing the highest-fidelity frontal face.
+We emphasize that this selection is performed \emph{without
+access to the reference image}, making it applicable in real-world
+scenarios where no clean reference is available at inference time.
+
+\paragraph{InsightFace-based selection (full-video scan).}
+For the InsightFace recognition system, which provides explicit
+3D head-pose estimates via its Simple3D module, we scan
+\emph{all $T$ frames} and select the most frontal frame using
+a weighted pose-error heuristic:
+\begin{equation}
+    \varepsilon(I_t) = \alpha \cdot |\psi_t|
+                     + \beta  \cdot |\theta_t|
+                     + \gamma \cdot |\phi_t|,
+    \label{eq:pose_error}
+\end{equation}
+where $(\psi_t, \theta_t, \phi_t)$ denote the yaw, pitch, and
+roll angles of the detected face in frame $I_t$, and the weights
+$(\alpha, \beta, \gamma) = (1.5,\; 1.0,\; 0.5)$ reflect the
+relative importance of each axis---yaw is penalized most
+heavily, as it has the greatest impact on facial feature visibility
+for recognition.  The optimal frame is:
+\begin{equation}
+    I^{*} = \arg\min_{I_t \in \mathbf{V}} \varepsilon(I_t),
+    \quad \text{subject to} \quad
+    c(I_t) > \tau_{\text{det}},
+    \label{eq:optimal_frame}
+\end{equation}
+where $c(I_t)$ is the detection confidence and
+$\tau_{\text{det}} = 0.6$ is the minimum confidence threshold.
+If multiple faces are detected in a frame, the largest face
+(by bounding-box area) is selected.
+
+\paragraph{DeepFace-based selection (landmark proxy).}
+Since the DeepFace library does not provide explicit 3D pose
+angles, we estimate frontality from 2D facial landmarks.
+Denoting the left and right eye positions as
+$\mathbf{p}_{\text{le}}, \mathbf{p}_{\text{re}}$ and the nose
+tip as $\mathbf{p}_{\text{nose}}$, we define proxy angles:
+\begin{align}
+    \hat{\psi} &= \frac{|x_{\text{nose}} - \bar{x}_{\text{eye}}|}
+                       {\|\mathbf{p}_{\text{re}} - \mathbf{p}_{\text{le}}\|_2}
+                  \times 30,
+    \label{eq:proxy_yaw} \\[3pt]
+    \hat{\phi} &= \left|\arctan\!\left(
+                  \frac{y_{\text{re}} - y_{\text{le}}}
+                       {x_{\text{re}} - x_{\text{le}}}
+                  \right)\right|,
+    \label{eq:proxy_roll} \\[3pt]
+    \hat{\theta} &= \left|
+                    \frac{y_{\text{nose}} - \bar{y}_{\text{eye}}}
+                         {\|\mathbf{p}_{\text{re}} - \mathbf{p}_{\text{le}}\|_2}
+                    - 0.65
+                    \right| \times 30,
+    \label{eq:proxy_pitch}
+\end{align}
+where $\bar{x}_{\text{eye}} = (x_{\text{le}} + x_{\text{re}})/2$
+is the horizontal eye midpoint, and $0.65$ is the expected
+vertical nose-to-eye ratio for a frontal face.  The same weighted
+combination as Eq.~\eqref{eq:pose_error} is then applied with
+$(\hat{\psi}, \hat{\theta}, \hat{\phi})$ replacing
+$(\psi, \theta, \phi)$.
+
+\paragraph{Multi-criteria scoring (face extraction).}
+For visual inspection and comparison-image generation, we also
+employ a finer-grained scoring function that considers five
+criteria simultaneously:
+\begin{equation}
+    S(I_t) = \underbrace{0.25 \cdot c_t}_{\text{detection}}
+           + \underbrace{0.15 \cdot r_t}_{\text{face size}}
+           + \underbrace{0.35 \cdot f_t}_{\text{frontality}}
+           + \underbrace{0.15 \cdot \min\!\bigl(\tfrac{s_t}{500}, 1\bigr)}_{\text{sharpness}}
+           + \underbrace{0.10 \cdot \tfrac{t}{T}}_{\text{position}},
+    \label{eq:multi_score}
+\end{equation}
+where $c_t$ is detection confidence, $r_t$ is face-area ratio
+(face area / frame area), $f_t = \max(0,\; 1 - |\hat{\psi}_t| / 45)$
+is the frontality score, $s_t$ is the Laplacian variance
+(sharpness), and $t/T$ encodes a slight preference for later
+frames (which are more likely to show the frontal view given
+our prompt design).
+
+%------------------------------------------------------------
+\subsubsection{Batch inference pipeline}
+\label{subsubsec:batch_pipeline}
+
+The full I2V restoration pipeline is orchestrated by a batch
+inference script that automates the following workflow for each
+experimental condition $(v, \sigma)$:
+
+\begin{enumerate}
+    \item \textbf{Input parsing.}\;
+          Read the degraded-image CSV file for condition
+          $(v, \sigma)$, listing all $N$ subjects with their
+          degraded test image paths.
+
+    \item \textbf{Prompt selection.}\;
+          Select the severity-adaptive prompt $\mathcal{P}_\sigma$
+          based on the blur level $\sigma$.
+
+    \item \textbf{Video generation.}\;
+          For each subject $i$, invoke
+          \texttt{wan2.2\_i2v\_infer.py} with the degraded image
+          $B_i(\sigma)$, prompt $\mathcal{P}_\sigma$, and the
+          hyperparameters in Table~\ref{tab:i2v_params}, producing
+          a video $\mathbf{V}_i$ saved as MP4.
+
+    \item \textbf{Frame selection \& evaluation.}\;
+          The evaluation scripts (Section~\ref{sec:evaluation})
+          scan each generated video, apply the pose-based frame
+          selection (Eq.~\ref{eq:optimal_frame}), extract the
+          512-d embedding from the selected frame, and compute
+          cosine similarity against the reference embedding.
+\end{enumerate}
+
+In total, the pipeline processes
+$250 \times 6 \times 2 = 3{,}000$ video generation tasks across
+all subjects, blur levels, and view types.  With the
+\texttt{--skip\_existing} flag, the pipeline supports resumable
+execution for overnight batch runs.
+
+%------------------------------------------------------------
+\subsubsection{Temporal redundancy hypothesis}
+\label{subsubsec:temporal_redundancy}
+
+The I2V approach offers a fundamental advantage over single-image
+restoration: \emph{temporal redundancy}.  Among $T = 81$ generated
+frames, the probability of at least one frame exhibiting
+high-fidelity identity features is substantially higher than
+from a single restoration attempt.  Formally, if we model the
+probability that a single generated frame preserves identity above
+a threshold as $p$, then the probability that at least one of $T$
+independent frames exceeds the threshold is:
+\begin{equation}
+    P(\text{at least one success}) = 1 - (1-p)^T.
+    \label{eq:temporal_redundancy}
+\end{equation}
+
+Even for $p = 0.05$ (only 5\% per-frame success rate), with
+$T = 81$ frames the probability of at least one successful frame
+is $1 - 0.95^{81} \approx 0.984$.\;  This multi-trial mechanism
+is unavailable to single-image methods, which are constrained to
+$T = 1$.
+
+Furthermore, the video diffusion model implicitly learns the
+manifold of plausible facial appearances under continuous viewpoint
+changes.  Even when conditioned on a severely degraded side-profile
+input, the model generates geometrically consistent frontal views
+by leveraging the learned 3D facial prior, effectively performing
+\emph{implicit 3D-aware face hallucination} through temporal
+motion generation.

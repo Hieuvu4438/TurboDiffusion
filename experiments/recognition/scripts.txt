@@ -1,0 +1,1 @@
+python mtcnn_insightface/face_recognition.py   -o /home/haipd/TurboDiffusion/Experiment_Data/Ref/Abdullah_Gul_ref.jpg   -r /home/haipd/TurboDiffusion/Experiment_Data/Side/Abdullah_Gul_side.jpg   -t 0.6

@@ -1,0 +1,243 @@
+% ============================================================
+%  \subsection{Evaluation metrics}
+%  Drop this into main.tex under Section: Identity Evaluation
+% ============================================================
+
+\subsection{Evaluation metrics}
+\label{subsec:metrics}
+
+We formulate identity verification as a binary classification task
+and evaluate it through a multi-tier framework that progressively
+captures both recognition accuracy and end-to-end system reliability.
+
+%------------------------------------------------------------
+\subsubsection{Binary verification formulation}
+\label{subsubsec:binary}
+
+Given a cosine-similarity score $s = \operatorname{sim}(\mathbf{e}_a, \mathbf{e}_b)$
+and a decision threshold $\tau$, we classify each pair as:
+\begin{equation}
+    \hat{y} =
+    \begin{cases}
+        1 & \text{if } s \geq \tau \quad \text{(same identity)}, \\
+        0 & \text{otherwise} \quad \text{(different identity)}.
+    \end{cases}
+    \label{eq:decision}
+\end{equation}
+
+The standard confusion-matrix elements are defined accordingly:
+\begin{itemize}
+    \item \textbf{True Positive (TP)}: $\hat{y} = 1$ and $y = 1$ (correctly matched same identity).
+    \item \textbf{True Negative (TN)}: $\hat{y} = 0$ and $y = 0$ (correctly rejected different identity).
+    \item \textbf{False Positive (FP)}: $\hat{y} = 1$ and $y = 0$ (falsely matched different identity).
+    \item \textbf{False Negative (FN)}: $\hat{y} = 0$ and $y = 1$ (falsely rejected same identity).
+\end{itemize}
+
+From these elements, we compute four primary metrics:
+\begin{align}
+    \text{Accuracy}  &= \frac{|\text{TP}| + |\text{TN}|}{|\text{TP}| + |\text{TN}| + |\text{FP}| + |\text{FN}|}, \label{eq:acc} \\[4pt]
+    \text{Precision} &= \frac{|\text{TP}|}{|\text{TP}| + |\text{FP}|}, \label{eq:prec} \\[4pt]
+    \text{Recall}    &= \frac{|\text{TP}|}{|\text{TP}| + |\text{FN}|}, \label{eq:rec} \\[4pt]
+    F_1              &= \frac{2 \cdot \text{Precision} \cdot \text{Recall}}
+                           {\text{Precision} + \text{Recall}}
+                      = \frac{2\,|\text{TP}|}
+                             {2\,|\text{TP}| + |\text{FP}| + |\text{FN}|}. \label{eq:f1}
+\end{align}
+
+%------------------------------------------------------------
+\subsubsection{Balanced pair construction}
+\label{subsubsec:pairs}
+
+To eliminate class-imbalance bias, we construct a \emph{1:1 balanced}
+evaluation set for each experimental condition $(v, \sigma)$, where
+$v \in \{\text{frontal}, \text{side}\}$ is the view type and $\sigma$
+is the blur level.
+
+For $N$ subjects in a given condition, we define:
+\begin{itemize}
+    \item \textbf{Positive pairs} ($\mathcal{P}^{+}$): For each subject $i$,
+          pair the restored/degraded embedding $\mathbf{e}_{\text{test}}^{(i)}$
+          with its own reference $\mathbf{e}_{\text{ref}}^{(i)}$:
+    \begin{equation}
+        \mathcal{P}^{+} = \bigl\{
+            (\mathbf{e}_{\text{test}}^{(i)},\;
+             \mathbf{e}_{\text{ref}}^{(i)},\;
+             y{=}1)
+            \;\big|\; i = 1, \dots, N
+        \bigr\}.
+        \label{eq:pos_pairs}
+    \end{equation}
+
+    \item \textbf{Negative pairs} ($\mathcal{P}^{-}$): For each subject $i$,
+          pair the restored/degraded embedding with a randomly selected
+          reference from a \emph{different} subject $j \neq i$:
+    \begin{equation}
+        \mathcal{P}^{-} = \bigl\{
+            (\mathbf{e}_{\text{test}}^{(i)},\;
+             \mathbf{e}_{\text{ref}}^{(j)},\;
+             y{=}0)
+            \;\big|\; j \sim \mathcal{U}\bigl(\{1,\dots,N\} \setminus \{i\}\bigr)
+        \bigr\}.
+        \label{eq:neg_pairs}
+    \end{equation}
+\end{itemize}
+
+\noindent
+This yields $|\mathcal{P}^{+}| = |\mathcal{P}^{-}| = N$ pairs,
+forming a balanced dataset of $2N$ total pairs per condition.
+A fixed random seed ($\text{seed}=42$) ensures reproducibility of
+the negative-pair assignment across experiments.
+
+%------------------------------------------------------------
+\subsubsection{Dual threshold strategy}
+\label{subsubsec:threshold}
+
+We report results under two complementary thresholding protocols:
+
+\paragraph{Fixed threshold ($\tau_{\text{fix}} = 0.15$).}
+This pre-defined operating point is chosen for degraded/restored
+face scenarios, where similarity scores are substantially lower
+than in clean-image face verification (where thresholds typically
+exceed 0.40). Using a fixed threshold enables direct cross-condition
+and cross-method comparability without overfitting to a specific
+similarity distribution.
+
+\paragraph{Optimal threshold ($\tau^{*}$).}
+We perform an exhaustive grid search over
+$\tau \in \{-0.50,\; -0.49,\; \dots,\; 0.99\}$ and select the threshold
+that maximizes the $F_1$-score:
+\begin{equation}
+    \tau^{*} = \arg\max_{\tau} \; F_1(\tau).
+    \label{eq:optimal_threshold}
+\end{equation}
+
+The optimal threshold reveals the \emph{best achievable discrimination}
+of a given method and indicates how well-separated the positive and
+negative similarity distributions are. A high optimal $F_1$ with
+$\tau^{*} \gg 0$ reflects strong identity preservation, whereas
+$\tau^{*} \leq 0$ indicates that positive and negative distributions
+overlap severely, signaling near-complete identity loss.
+
+%------------------------------------------------------------
+\subsubsection{Three-tier evaluation hierarchy}
+\label{subsubsec:tiers}
+
+We define three evaluation tiers to progressively disentangle
+face detection reliability from recognition quality.
+
+\paragraph{Tier~1: Face Detection Rate (FDR).}
+The proportion of input images (or video frames) for which the
+face recognition system successfully detects and embeds a face:
+\begin{equation}
+    \text{FDR} = \frac{N_{\text{detected}}}{N_{\text{total}}} \times 100\%.
+    \label{eq:fdr}
+\end{equation}
+
+Under severe degradation, face detectors may fail entirely on
+blurred images while still detecting faces in video-generated
+frames. This tier captures a critical operational dimension: a
+restoration method that produces undetectable faces has zero
+downstream utility, regardless of its pixel-level quality.
+
+\paragraph{Tier~2: Intersection metrics.}
+Computed \emph{only} on the subset of pairs where both
+the test and reference faces were successfully detected:
+\begin{equation}
+    \mathcal{S}_{\text{valid}} = \bigl\{
+        (a, b, y) \in \mathcal{P}
+        \;\big|\;
+        \operatorname{sim}(a, b) \neq \texttt{NaN}
+    \bigr\}.
+    \label{eq:valid}
+\end{equation}
+
+Metrics at this tier answer: \emph{``When a face is detected, how
+accurately is its identity preserved?''} By excluding detection
+failures, Tier~2 isolates the intrinsic recognition quality of each
+method from its detection robustness.
+
+\paragraph{Tier~3: System-level metrics.}
+All pairs are included; failed detections ($\texttt{NaN}$ cosine
+similarities) are penalized by assigning a score of $-1.0$:
+\begin{equation}
+    \tilde{s}_{(a,b)} =
+    \begin{cases}
+        \operatorname{sim}(\mathbf{e}_a, \mathbf{e}_b) & \text{if both faces detected}, \\
+        -1.0 & \text{otherwise}.
+    \end{cases}
+    \label{eq:penalty}
+\end{equation}
+
+The penalty value $-1.0$ is chosen to lie strictly below all
+observed genuine similarities (which are $> -0.5$ in practice),
+ensuring that any threshold $\tau > -1.0$ classifies a detection
+failure as a rejected match. This tier captures the
+\emph{end-to-end operational performance}, combining both detection
+reliability and recognition accuracy into a single set of metrics.
+It is the most operationally relevant measure for real-world
+deployment, where a pipeline failure at any stage results in a
+verification failure.
+
+%------------------------------------------------------------
+\subsubsection{Dual face recognition systems}
+\label{subsubsec:dual_fr}
+
+To ensure that our findings generalize beyond a single recognition
+backend, we evaluate each condition with two independent face
+recognition systems that share the ArcFace~\cite{ArcFace} backbone
+but differ in detector, preprocessing, and pose estimation:
+
+\begin{enumerate}
+    \item \textbf{InsightFace (buffalo\_l)}: Uses
+          SCRFD~\cite{SCRFD} for face detection, ArcFace for 512-d
+          embedding extraction, and the Simple3D module for direct
+          3D head-pose estimation ($\psi, \theta, \phi$).
+    \item \textbf{DeepFace (ArcFace + RetinaFace)}: Uses
+          RetinaFace~\cite{RetinaFace} for detection with affine
+          alignment, ArcFace via the DeepFace library for embedding
+          extraction, and a landmark-based proxy for frontality
+          estimation (see Section~\ref{subsec:frame_selection}).
+\end{enumerate}
+
+The two systems exhibit markedly different behaviors under
+degradation: InsightFace's SCRFD detector is more conservative
+and may fail to detect severely blurred faces, whereas DeepFace's
+RetinaFace (with \texttt{enforce\_detection=False}) can produce
+embeddings even from heavily degraded inputs, potentially at the
+cost of embedding quality. Reporting results from both systems
+strengthens our conclusions through:
+\begin{enumerate*}[label=(\roman*)]
+    \item cross-validation of the I2V advantage,
+    \item detector-sensitivity analysis, and
+    \item face-detection-rate comparison.
+\end{enumerate*}
+
+%------------------------------------------------------------
+\subsubsection{Experimental conditions matrix}
+\label{subsubsec:conditions}
+
+The full factorial experimental design is summarized in
+Table~\ref{tab:conditions}.
+
+\begin{table}[h]
+\centering
+\caption{Experimental conditions matrix.}
+\label{tab:conditions}
+\begin{tabular}{l l c}
+\toprule
+\textbf{Dimension} & \textbf{Values} & \textbf{Count} \\
+\midrule
+View type ($v$) & Frontal, Side & 2 \\
+Blur level ($\sigma$) & 3,\,5,\,8,\,10,\,12,\,15 & 6 \\
+Restoration method & I2V, SR, Degraded & 3 \\
+Recognition system & InsightFace, DeepFace & 2 \\
+\midrule
+\multicolumn{2}{l}{\textbf{Total unique conditions}} & \textbf{72} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent
+Each condition is evaluated on $2N = 500$ pairs (250~positive +
+250~negative), yielding a total of $\mathbf{36{,}000}$ pair-wise
+identity verification comparisons across the entire study.

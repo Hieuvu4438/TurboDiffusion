@@ -10,7 +10,27 @@ dist/
 
 # checkpoints
 checkpoints/
+*.pth
 
 # outputs
 output*/
 *.mp4
+
+# ── Research-layer data & outputs (~100 GB) ────────────────────────────────
+# Left in place at the repo root; centralized in experiments/config.py.
+# Library CODE used to live under degradation_experiment/ and mtcnn_insightface/
+# but has been moved into experiments/, so these dirs are now pure data/output.
+Experiment_Data/
+Experiment_Data_Split/
+Experiment_Data_Split_New/
+Experiment_Data_Split_Combined/
+image/
+degradation_experiment/
+cosine_similarity_output/
+face_recognition_output/
+mtcnn_insightface/
+zip_output/*.zip
+
+# CSV manifests holding machine-specific absolute paths (regenerable)
+lfw_*.csv
+*.csv.bak

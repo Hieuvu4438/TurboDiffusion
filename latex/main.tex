@@ -1,0 +1,273 @@
+\documentclass{ieeeaccess}
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{multirow}
+\usepackage{booktabs}
+\usepackage{adjustbox}
+\usepackage{url}
+\usepackage[inline]{enumitem}
+\usepackage{caption}
+\usepackage{float}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\history{Received March 15, 2026; revised March 25, 2026; accepted March 27, 2026. Date of publication March 27, 2026; date of current version March 27, 2026.}
+\doi{10.1109/ACCESS.2026.31XXXXX}
+
+\title{Evaluating Identity Preservation in Face Restoration: A Comparative Study Between Video Generation and Super-Resolution Models}
+
+\author{\uppercase{author A}\authorrefmark{1}}
+\address[1]{Post ....  (e-mail: yen.nguyenthi@hust.edu.vn).}
+
+\markboth{Author A \MakeLowercase{\textit{et al.}}: IDENTITY PRESERVATION IN FACE RESTORATION}
+{Author A \MakeLowercase{\textit{et al.}}: IDENTITY PRESERVATION IN FACE RESTORATION}
+
+\corresp{Corresponding author:  (e-mail: ).}
+
+\begin{abstract}
+This study evaluates identity preservation capabilities of video generation versus super-resolution models when restoring heavily blurred face images. Using the Labeled Faces in the Wild (LFW) dataset with 500 identities, we apply Gaussian blurring at standard deviations $\sigma \in \{10, 12, 15\}$ to simulate security camera degradation. Blurred images are processed through Wan 2.1 video generation and GFPGAN super-resolution pipelines. Identity verification is performed using ArcFace embeddings and cosine similarity, formulated as binary classification with standard metrics (accuracy, precision, recall, F1-score). Results demonstrate video generation consistently outperforms super-resolution across all blur levels and poses, achieving up to 57.8\% accuracy (F1=29.4\%) at $\sigma=10$ for frontal poses versus 53.4\% (F1=14.7\%) for super-resolution. Even at severe blurring ($\sigma=15$), video generation maintains 51.4–52.6\% accuracy compared to 49.8–51.6\% for super-resolution. These findings highlight video generation’s superior identity preservation through motion and multi-frame consistency, offering critical insights for forensic and surveillance applications requiring reliable face recognition from degraded footage.
+\end{abstract}
+
+\begin{IEEEkeywords}
+ArcFace, face restoration, face recognition, identity preservation, super-resolution, video generation.
+\end{IEEEkeywords}
+
+\titlepgskip=-15pt
+
+\maketitle
+
+\section{Introduction}
+\label{sec:introduction}
+
+Face recognition from low-quality images remains a critical challenge in surveillance, forensics, and secure access systems. Security camera footage is often severely degraded by motion blur, low resolution, and compression artifacts, seriously impairing identity verification performance of standard face recognition pipelines~\cite{Survey2021}. Traditional face super‑resolution methods attempt to recover high‑quality facial details from a single low‑quality image, yet struggle to preserve discriminative identity features when degradation is severe~\cite{EIPNet,DR2}.
+
+Recent advances in diffusion-based and video-generation models have opened the possibility of restoring identity from deeper degradation by leveraging temporal and motion priors. Methods such as Diffuse and Restore~\cite{DiffuseRestore} and DR2~\cite{DR2} focus on blind face restoration with identity preservation, while video-based approaches like FaceMe~\cite{FaceMe2025} and video diffusion models such as Wan 2.1~\cite{Wan2_1} explore generation as a restoration mechanism. However, systematic comparison between video-generation-based restoration and single‑image super‑resolution for identity preservation under controlled blur is still lacking.
+
+This paper presents a comparative study between video generation (Wan 2.1) and super‑resolution (GFPGAN) for identity preservation in face restoration. Using the Labeled Faces in the Wild (LFW) dataset with 500 identities and Gaussian blur $\sigma \in \{10, 12, 15\}$, we evaluate both frontal and side‑profile poses under a binary identity verification setup. Our main contributions are:
+
+\begin{itemize}
+    \item A controlled experimental setup comparing video‑generation and super‑resolution pipelines for identity preservation under synthetic blur.
+    \item Comprehensive evaluation using ArcFace embeddings and cosine‑similarity‑based verification metrics (accuracy, precision, recall, F1‑score) across different blur levels and poses.
+    \item Empirical evidence that video generation consistently outperforms super‑resolution at all blur levels, with up to approximately 2× F1‑score improvement at $\sigma=10$.
+\end{itemize}
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Face super-resolution and static image restoration}
+Face super-resolution has evolved from CNN-based single-image super-resolution (SISR) methods to GAN-based and diffusion-based architectures designed to preserve identity under mild degradation~\cite{Survey2021,GFPGAN}. Networks such as EIPNet~\cite{EIPNet} and identity-aware CNN/GAN models explicitly regularize edge structures and facial landmarks during upscaling, yielding visually pleasant results when blur and noise are moderate. However, these static image restoration methods share a fundamental limitation: they operate on a \emph{single low-quality input snapshot} and attempt to invert the degradation process in a highly ill-posed setting.
+
+Recent diffusion-based face restoration methods such as DR2~\cite{DR2} and Diffuse and Restore~\cite{DiffuseRestore} push this paradigm further by learning robust degradation priors from large datasets. While they improve robustness under blind scenarios, they still rely on a single corrupted image and must recover identity from a potentially collapsed feature space after severe blur. In practice, this leads to a trade-off: mild blur can be effectively reversed, but as blur increases (e.g., $\sigma \geq 12$), restored features become less discriminative, and identity-preserving capability drops sharply.
+
+Surveys on deep learning-based face super-resolution~\cite{Survey2021} and diffusion-based image restoration~\cite{SurveyDiffusionISR} highlight that \emph{identity preservation deteriorates quickly beyond moderate blur levels}, precisely where static image methods reach their representational limits. In forensic and surveillance settings, this behavior is critical: when the input is severely blurred, static SR essentially hallucinates plausible faces rather than reconstructing the true identity.
+
+\subsection{Restoration-by-generation and identity-aware priors}
+Recent work has shifted toward \emph{restoration-by-generation}, where identity is preserved by conditioning the generation process on explicit or implicit identity priors rather than trying to invert the degradation in pixel space. FaceMe~\cite{FaceMe2025} and Restoration by Generation with Constrained Priors~\cite{RestorationByGeneration} combine robust degradation removal with explicit identity constraints, effectively steering the generative model toward plausible reconstructions that stay close to the true identity manifold. These methods can be viewed as a bridge between classical super-resolution and full-scale generative restoration.
+
+However, they still operate primarily on \emph{single images}: the identity cue is typically encoded either in a reference embedding or a textual label, which is then fused into the restoration pipeline. This limits the available information for identity recovery to a single degraded view, and the underlying model must again invert the degradation from a noisy, low-dimensional representation. As blur intensifies, even these constrained-generation methods struggle to maintain high verification performance, because the identity signal is simply too weak in the corrupted input.
+
+\subsection{Video-based restoration and temporal priors}
+Video-based restoration approaches exploit \emph{multi-frame consistency} and \emph{motion priors} to improve both quality and identity preservation. Efficient Video Face Enhancement (BFVR-STC)~\cite{BFVR-STC} and KEEP~\cite{KEEP} emphasize temporal feature propagation and Kalman-inspired filtering across frames, while general video super-resolution (VSR) methods~\cite{VSR_survey} show that motion-compensated alignment can significantly improve texture and detail recovery. In these works, temporal consistency serves as a regularizer that suppresses frame-wise artifacts and stabilizes identity-related features across time.
+
+Despite these advances, most video-based restoration methods focus on \emph{quality} (e.g., PSNR, SSIM, perceptual scores) and \emph{motion smoothness}, not on explicit identity verification under controlled, severe blur. The core question of \emph{``How well does multi-frame generation actually preserve identity when compared to static super-resolution under extreme blur?''} remains largely unmeasured. This gap is crucial, because video generation introduces a fundamentally different prior: instead of trying to invert a single blur kernel, it learns to generate a coherent motion sequence where identity is implicitly enforced by temporal and structural consistency.
+
+\subsection{Video generation and identity-preserving video models}
+Recent video generation models such as Wan 2.1~\cite{Wan2_1} and Identity-Preserving Image-to-Video Generation~\cite{IdentityPreservingVideo} explicitly target identity preservation during video synthesis. They generate short video clips from a single image under strong textual constraints (e.g., fix identity, perform smooth head turn, preserve gender) and have demonstrated promising results in maintaining facial structure across frames. However, these models are evaluated mainly on perceptual quality and qualitative human judgments, without systematic binary identity verification on matched reference images, nor on increasingly severe blur levels comparable to surveillance footage.
+
+This leads to our main motivation: existing work on face super-resolution shows \emph{static image methods fundamentally fail when inputs are too blurred}, because they lack sufficient information to invert the degradation while preserving identity. In contrast, video generation provides a new route: instead of sticking to a single degraded image, it leverages motion, multi-frame sampling, and temporal consistency to reinforce identity cues. Yet, \emph{no prior study has quantitatively compared identity-preserving capabilities of video generation versus static super-resolution under controlled, severe blur and under a standard identity verification setup}. Our work fills this gap, demonstrating that video generation is not only a qualitatively different paradigm, but also a quantitatively superior direction for identity-critical restoration tasks.
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Dataset}
+We use the Labeled Faces in the Wild (LFW) dataset~\cite{LFW}, containing 500 identities. Each identity is represented by exactly two face images, which we partition as follows:
+
+\begin{itemize}
+    \item 250 identities for frontal‑pose analysis,
+    \item 250 identities for side‑profile (profile)‑pose analysis.
+\end{itemize}
+
+For each identity $i$, we define the following images:
+
+\begin{itemize}
+    \item $R_i$: reference image, unblurred high‑quality frontal face.
+    \item $B_i(\sigma)$: blurred version of $R_i$ obtained by applying a 2D Gaussian filter with standard deviation $\sigma \in \{10, 12, 15\}$.
+\end{itemize}
+
+The blur levels $\sigma = 10, 12, 15$ simulate increasing degradation, resembling the quality drops commonly observed in low‑resolution surveillance footage~\cite{SurveyDiffusionISR}.
+
+\subsection{Pipeline overview}
+For each identity $i$ and blur level $\sigma$, we construct three restoration pipelines that represent fundamentally different approaches to face recovery:
+
+\begin{itemize}
+    \item \textbf{Video Generation --- Wan 2.1}~\cite{Wan2_1}:\;
+          the blurred image $B_i(\sigma)$ is provided as input to
+          a video generation model alongside a text prompt enforcing
+          identity and gender preservation, smooth head turn to
+          frontal pose, and cinematic quality.  The model generates
+          a short video clip of approximately 18 frames at 16\,fps
+          (about 1.12 seconds).
+
+    \item \textbf{Accelerated Video Generation --- TurboDiffusion
+          (Wan\,2.2-A14B)}~\cite{TurboDiffusion}:\;
+          the same blurred image $B_i(\sigma)$ is processed by
+          TurboDiffusion, a 14-billion-parameter image-to-video
+          diffusion model accelerated through rCM
+          distillation~\cite{rCM} (reducing denoising from 50--100
+          to only 4~steps), SageSLA sparse-linear
+          attention~\cite{SLA} (${\sim}10\times$ attention speedup),
+          and INT8 weight quantization.  The model generates
+          $T = 81$ frames at 720p resolution with adaptive aspect
+          ratio, guided by a severity-adaptive text prompt that
+          prescribes a head turn ending in a frontal view.
+          The most frontal frame is selected via a 3D pose-based
+          heuristic rather than oracle similarity matching
+          (see Section~\ref{sec:pipeline}).
+
+    \item \textbf{Super-Resolution --- GFPGAN}~\cite{GFPGAN}:\;
+          the same blurred image $B_i(\sigma)$ is processed by
+          GFPGAN, a GAN-based face super-resolution model, yielding
+          a single enhanced image $\text{SR}(B_i(\sigma))$.
+\end{itemize}
+
+All 250 subjects (500 images) per view type are included in the
+evaluation.  Identity verification is performed using two
+independent face recognition systems---InsightFace
+(SCRFD~\cite{SCRFD} + ArcFace~\cite{ArcFace}) and DeepFace
+(RetinaFace~\cite{RetinaFace} + ArcFace)---to ensure that our
+findings generalize beyond a single recognition backend.
+
+\subsection{Positive and negative pairs}
+For each pipeline, we construct identity‑verification pairs as follows:
+
+\begin{itemize}
+    \item \textbf{Positive pairs}: pairs between the processed sample (best video frame or super‑resolved image) and the reference image $R_i$ of the \emph{same} identity.
+    \item \textbf{Negative pairs}: pairs between the processed sample of one identity and the reference image $R_j$ of a \emph{different} identity ($j \neq i$).
+\end{itemize}
+
+These pairs form the basis of our binary identity‑verification task.
+
+\section{Processing Pipeline}
+\label{sec:pipeline}
+
+\subsection{Gaussian blurring}
+Given an input image $I_i$, we apply 2D Gaussian blurring as
+\begin{equation}
+    B_i(\sigma) = G_\sigma * I_i,
+\end{equation}
+where $G_\sigma$ is the Gaussian kernel with standard deviation $\sigma$, and $*$ denotes convolution. The parameter $\sigma$ is varied from 10 to 15 to simulate increasing levels of information attenuation, resembling the quality degradation often observed in security camera footage~\cite{SurveyDiffusionISR}.
+
+\subsection{Video generation from blurred images}
+The blurred image $B_i(\sigma)$ is provided as input to the Wan 2.1 video generation model~\cite{Wan2_1} alongside a structured text prompt that enforces:
+
+\begin{itemize}
+    \item Strict identity and gender preservation,
+    \item Specific motion dynamics (smooth head turn ending in a frontal gaze),
+    \item Cinematic quality with structural stabilization.
+\end{itemize}
+
+The model generates a short video clip of approximately 18 frames at 16 fps. The multi‑frame sequence encodes both appearance and motion priors, which may aid identity preservation during verification.
+
+\subsection{Image super-resolution}
+The same blurred image $B_i(\sigma)$ is processed by the GFPGAN super‑resolution model to enhance resolution and recover facial details. The resulting image is denoted as
+\begin{equation}
+    \text{SR}(B_i(\sigma)).
+\end{equation}
+GFPGAN combines generative adversarial learning with a degradation‑aware architecture to recover realistic facial details~\cite{GFPGAN}.
+
+\section{Identity Evaluation}
+\label{sec:evaluation}
+
+\subsection{Feature extraction}
+We employ RetinaFace~\cite{RetinaFace} for face detection and ArcFace~\cite{ArcFace} to extract a $d$‑dimensional embedding vector $e \in \mathbb{R}^d$ for each detected face. For each sample, we compute:
+
+\begin{itemize}
+    \item $e_R^{(i)}$: embedding of the reference image $R_i$,
+    \item $e_V^{(i,m,j)}$: embedding of the $j$‐th frame in the $m$-th generated video of identity $i$,
+    \item $e_{\text{SR}}^{(i)}(\sigma)$: embedding of the super‑resolved image $\text{SR}(B_i(\sigma))$.
+\end{itemize}
+
+The cosine similarity between two embeddings $e_a$ and $e_b$ is defined as
+\begin{equation}
+    \operatorname{sim}(e_a, e_b) = \frac{e_a \cdot e_b}{\|e_a\| \|e_b\|}.
+\end{equation}
+
+\subsection{Evaluation on video frames}
+For each identity $i$ and each generated video, we compute the cosine similarity between the reference embedding and every video frame embedding:
+\begin{equation}
+    \operatorname{sim}_V^{(i,m,j)} = \operatorname{sim}\bigl(e_V^{(i,m,j)}, e_R^{(i)}\bigr), \quad j = 0, \dots, N-1,
+\end{equation}
+where $N \approx 18$ is the number of frames. The frame with the highest similarity is selected as the most representative frame:
+\begin{equation}
+    j^* = \arg\max_j \operatorname{sim}_V^{(i,m,j)}.
+\end{equation}
+This best‑matching frame is used for subsequent identity verification evaluation of the video pipeline.
+
+\subsection{Super-resolution image evaluation}
+For the super‑resolved images, we directly compute
+\begin{equation}
+    \operatorname{sim}_{\text{SR}}^{(i)}(\sigma) = \operatorname{sim}\bigl(e_{\text{SR}}^{(i)}(\sigma), e_R^{(i)}\bigr).
+\end{equation}
+This value quantifies the degree of identity preservation after super‑resolution.
+
+\subsection{Evaluation metrics}
+We formulate identity verification as a binary classification task: two samples are predicted to belong to the same identity if their cosine similarity is at least a threshold $\tau$, i.e.,
+\begin{equation}
+    \operatorname{same\ identity} \quad \iff \quad \operatorname{sim}(e_a, e_b) \geq \tau.
+\end{equation}
+The threshold $\tau$ is determined on a separate validation/development set. The following standard classification metrics are reported for each blurring strength $\sigma \in \{10, 12, 15\}$ and for each pipeline (video and super‑resolution):
+
+\begin{itemize}
+    \item Accuracy,
+    \item Precision,
+    \item Recall,
+    \item F1-score.
+\end{itemize}
+
+\section{Results}
+\label{sec:results}
+
+Table~\ref{tab:arcface_results} reports quantitative results on InsightFace (ArcFace) for frontal and side poses.
+
+\begin{table*}[t]
+\centering
+\caption{Quantitative Evaluation on InsightFace (ArcFace) for Frontal and Side Poses (in \%).}
+\label{tab:arcface_results}
+\adjustbox{max width=\textwidth}{
+\begin{tabular}{l|l|cccc|cccc}
+\toprule
+\multirow{2}{*}{\textbf{Blur ($\sigma$)}} & \multirow{2}{*}{\textbf{Method}} & \multicolumn{4}{c|}{\textbf{Frontal Pose}} & \multicolumn{4}{c}{\textbf{Side Pose}} \\
+ &  & Accuracy & Precision & Recall & F1-score & Accuracy & Precision & Recall & F1-score \\
+\midrule
+\multirow{4}{*}{10} 
+ & Degradation (Baseline) & 52.80 & 88.89 & 6.40 & 11.94 & 53.00 & 85.71 & 7.20 & 13.28 \\
+ & GFPGAN (SR) & 53.40 & 86.96 & 8.00 & 14.65 & 55.60 & 100.00 & 11.20 & 20.14 \\
+ & Wan 2.1 (Video) & \textbf{57.80} & \textbf{89.80} & \textbf{17.60} & \textbf{29.40} & \textbf{57.40} & 86.27 & \textbf{17.60} & \textbf{29.20} \\
+ & Ground Truth & 99.40 & 98.81 & 100.00 & 99.40 & 98.80 & 97.66 & 100.00 & 98.81 \\
+\midrule
+\multirow{4}{*}{12} 
+ & Degradation (Baseline) & 50.60 & 100.00 & 1.20 & 2.37 & 50.20 & 66.67 & 0.80 & 1.58 \\
+ & GFPGAN (SR) & 50.20 & 55.56 & 2.00 & 3.86 & 52.20 & 82.35 & 5.60 & 10.49 \\
+ & Wan 2.1 (Video) & \textbf{54.00} & \textbf{79.41} & \textbf{10.80} & \textbf{19.00} & \textbf{54.20} & \textbf{81.82} & \textbf{10.80} & \textbf{19.10} \\
+ & Ground Truth & 99.40 & 98.81 & 100.00 & 99.40 & 98.80 & 97.66 & 100.00 & 98.81 \\
+\midrule
+\multirow{4}{*}{15} 
+ & Degradation (Baseline) & 50.20 & 100.00 & 0.40 & 0.80 & 50.00 & 0.00 & 0.00 & 0.00 \\
+ & GFPGAN (SR) & 49.80 & 40.00 & 0.80 & 1.57 & 51.60 & 78.57 & 4.40 & 8.33 \\
+ & Wan 2.1 (Video) & \textbf{51.40} & \textbf{70.59} & \textbf{4.80} & \textbf{9.00} & \textbf{52.60} & \textbf{80.95} & \textbf{6.80} & \textbf{12.50} \\
+ & Ground Truth & 99.40 & 98.81 & 100.00 & 99.40 & 98.80 & 97.66 & 100.00 & 98.81 \\
+\bottomrule
+\end{tabular}
+}
+\end{table*}
+
+\bibliographystyle{IEEEtran}
+\bibliography{references}
+\EOD
+
+\end{document}
